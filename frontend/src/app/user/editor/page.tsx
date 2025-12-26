@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, FileText } from 'lucide-react';
 import DocumentEditorKV, { DocumentEditorData } from '@/components/DocumentEditorKV';
 import ReceiptEditorKV from '@/components/ReceiptEditorKV';
+import PDFViewKV from '@/components/PDFViewKV';
 import { getTemplateById, type ContractTemplate } from '@/data/templates';
 import { useToast, ToastContainer } from '@/components/Toast';
 import type { Receipt } from '@/lib/kv';
@@ -18,13 +19,25 @@ function EditorContent() {
   const [initialData, setInitialData] = useState<any>();
   const [receiptData, setReceiptData] = useState<Receipt | null>(null);
   const [mode, setMode] = useState<'create' | 'edit'>('create');
-  const [documentType, setDocumentType] = useState<'contract' | 'receipt' | null>(null);
+  const [documentType, setDocumentType] = useState<'contract' | 'receipt' | 'pdf' | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // Reload editor data when URL params change (edit, template, type, mode)
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadEditorData();
+    }
+  }, [searchParams, isAuthenticated]);
+
+  // Scroll to top when URL changes
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [searchParams]);
 
   const checkAuth = async () => {
     try {
@@ -48,6 +61,7 @@ function EditorContent() {
   const loadEditorData = async () => {
     const templateId = searchParams.get('template');
     const editId = searchParams.get('edit');
+    const modeParam = searchParams.get('mode');
     
     if (editId) {
       // Edit mode - load from backend API
@@ -60,6 +74,14 @@ function EditorContent() {
         
         if (data.success && data.receipt) {
           const receipt = data.receipt as Receipt;
+          
+          // Check if it's a PDF document (by mode parameter or document ID prefix)
+          if (modeParam === 'pdf' || editId.startsWith('PDF-')) {
+            setDocumentType('pdf');
+            setMode('edit');
+            setReceiptData(receipt);
+            return;
+          }
           
           // Determine if it's a contract or receipt
           if (receipt.document) {
@@ -153,6 +175,45 @@ function EditorContent() {
     router.push('/user/dashboard');
   };
 
+  const handleSavePDF = async (data: PDFEditorData) => {
+    try {
+      const editId = searchParams.get('edit');
+      if (!editId) {
+        showToast('Không tìm thấy ID tài liệu', 'error');
+        return;
+      }
+
+      const response = await fetch('/api/receipts/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editId,
+          document: {
+            type: 'pdf',
+            signers: data.signers,
+            metadata: data.metadata,
+          }
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        showToast('Cập nhật thành công!', 'success');
+        setTimeout(() => router.push('/user/dashboard'), 1000);
+      } else {
+        if (result.code === 'FULLY_SIGNED') {
+          showToast('Văn bản đã được ký đầy đủ. Không thể chỉnh sửa.', 'error');
+        } else {
+          showToast(result.error || 'Có lỗi xảy ra', 'error');
+        }
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      showToast('Không thể lưu. Vui lòng thử lại.', 'error');
+    }
+  };
+
   const handleCancel = () => {
     router.push('/user/create');
   };
@@ -167,6 +228,21 @@ function EditorContent() {
           <p className="text-gray-500">Đang kiểm tra...</p>
         </div>
       </div>
+    );
+  }
+
+  // Render PDF viewer/editor for PDF documents
+  if (documentType === 'pdf' && receiptData) {
+    return (
+      <>
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
+        <PDFViewKV
+          receiptId={receiptData.id}
+          mode={mode}
+          onSave={handleSavePDF}
+          onCancel={handleCancel}
+        />
+      </>
     );
   }
 

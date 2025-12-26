@@ -14,10 +14,17 @@ export async function GET(request: NextRequest) {
     const token = cookieStore.get('jwt_token')?.value;
 
     if (!token) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      // Return empty list instead of error to prevent frontend crash
+      return NextResponse.json({
+        success: true,
+        receipts: [],
+        pagination: {
+          total: 0,
+          page: 1,
+          pageSize: 4,
+          totalPages: 0,
+        },
+      });
     }
 
     const { searchParams } = new URL(request.url);
@@ -42,10 +49,18 @@ export async function GET(request: NextRequest) {
     });
 
     if (!backendResponse.ok) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to get documents from backend' },
-        { status: backendResponse.status }
-      );
+      console.warn('Backend request failed:', backendResponse.status, backendResponse.statusText);
+      // Return empty list instead of error to prevent frontend crash
+      return NextResponse.json({
+        success: true,
+        receipts: [],
+        pagination: {
+          total: 0,
+          page: page,
+          pageSize: pageSize,
+          totalPages: 0,
+        },
+      });
     }
 
     const backendData = await backendResponse.json().catch(() => ({ success: false }));
@@ -55,32 +70,47 @@ export async function GET(request: NextRequest) {
       ? { data: backendData.data, message: backendData.message }
       : { data: backendData, message: '' };
 
-    if (!response.data) {
-      return NextResponse.json(
-        { success: false, error: response.message || 'Failed to get documents' },
-        { status: response.statusCode || 500 }
-      );
+    if (!response.data || !response.data.items) {
+      console.warn('No documents data returned:', response.message);
+      // Return empty list instead of error
+      return NextResponse.json({
+        success: true,
+        receipts: [],
+        pagination: {
+          total: 0,
+          page: page,
+          pageSize: pageSize,
+          totalPages: 0,
+        },
+      });
     }
 
     // Transform documents to receipts
-    const receipts = response.data.items?.map((doc: any) => transformDocumentToReceipt(doc)) || [];
+    const receipts = (response.data.items || []).map((doc: any) => transformDocumentToReceipt(doc));
 
     return NextResponse.json({
       success: true,
       receipts,
       pagination: {
-        total: response.data.totalCount,
-        page: response.data.page,
-        pageSize: response.data.pageSize,
-        totalPages: response.data.totalPages,
+        total: response.data.totalCount || 0,
+        page: response.data.page || page,
+        pageSize: response.data.pageSize || pageSize,
+        totalPages: response.data.totalPages || 0,
       },
     });
   } catch (error: any) {
     console.error('List user receipts error:', error);
-    return NextResponse.json(
-      { success: false, error: error.message || 'Internal server error' },
-      { status: 500 }
-    );
+    // Return empty list instead of error to prevent frontend crash
+    return NextResponse.json({
+      success: true,
+      receipts: [],
+      pagination: {
+        total: 0,
+        page: 1,
+        pageSize: 4,
+        totalPages: 0,
+      },
+    });
   }
 }
 

@@ -11,5 +11,9 @@ public interface IAuthService
     Task<User?> GetUserByIdAsync(Guid userId);
     Task<bool> RequestPasswordResetAsync(string email);
     Task<bool> ResetPasswordAsync(string email, string token, string newPassword);
+    Task<User> UpdateProfileAsync(Guid userId, string? name);
+    Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
+    Task<string> RequestDeleteAccountOtpAsync(Guid userId);
+    Task<bool> VerifyDeleteAccountOtpAsync(Guid userId, string otpCode);
 }
 

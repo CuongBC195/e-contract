@@ -55,7 +55,7 @@ export function transformDocumentToReceipt(doc: DocumentResponseDto): any {
     : (doc.status?.toLowerCase() === 'signed' ? 'signed' : 
        doc.status?.toLowerCase() === 'partiallysigned' ? 'partially_signed' : 'pending');
 
-  const baseReceipt = {
+  const baseReceipt: any = {
     id: doc.id,
     type: documentType as 'receipt' | 'contract',
     title: doc.title,
@@ -68,6 +68,19 @@ export function transformDocumentToReceipt(doc: DocumentResponseDto): any {
     userId: doc.creator?.id,
     signatures: doc.signatures,
   };
+
+  // Add pdfUrl if available (for PDF documents)
+  if ((doc as any).pdfUrl) {
+    baseReceipt.pdfUrl = (doc as any).pdfUrl;
+  }
+
+  // Add pdfSignatureBlocks if available (for PDF documents)
+  if ((doc as any).pdfSignatureBlocks) {
+    if (!baseReceipt.document) {
+      baseReceipt.document = {};
+    }
+    baseReceipt.document.pdfSignatureBlocks = (doc as any).pdfSignatureBlocks;
+  }
 
   // For contracts, add document structure
   if (documentType === 'contract') {

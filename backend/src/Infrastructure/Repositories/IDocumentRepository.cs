@@ -7,6 +7,7 @@ public interface IDocumentRepository
 {
     Task<Document?> GetByIdAsync(string id);
     Task<Document?> GetByIdWithSignaturesAsync(string id);
+    Task<Document?> GetByIdForDeleteAsync(string id); // Get document without IsDeleted filter (for deletion)
     Task<Document> CreateAsync(Document document);
     Task<Document> UpdateAsync(Document document);
     Task<bool> DeleteAsync(string id);

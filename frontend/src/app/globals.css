@@ -147,3 +147,17 @@ textarea {
 .toast-slide-in {
   animation: slideIn 0.3s ease-out;
 }
+
+/* Loading logo animation */
+@keyframes slideRight {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-slide-right {
+  animation: slideRight 1.5s ease-in-out infinite;
+}

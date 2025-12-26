@@ -86,6 +86,8 @@ export interface DocumentResponseDto {
   createdAt: string;
   signedAt?: string;
   viewedAt?: string;
+  pdfUrl?: string;
+  pdfSignatureBlocks?: PdfSignatureBlockDto[];
 }
 
 export interface PaginatedResponseDto<T> {
@@ -283,6 +285,99 @@ export async function logout(): Promise<ApiResponse<object>> {
   return apiRequest<object>('/api/auth/logout', {
     method: 'POST',
   });
+}
+
+export interface UpdateProfileRequestDto {
+  name?: string;
+}
+
+export async function updateProfile(request: UpdateProfileRequestDto): Promise<ApiResponse<UserDto>> {
+  return apiRequest<UserDto>('/api/auth/profile', {
+    method: 'PUT',
+    body: JSON.stringify(request),
+  });
+}
+
+export interface ChangePasswordRequestDto {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export async function changePassword(request: ChangePasswordRequestDto): Promise<ApiResponse<object>> {
+  return apiRequest<object>('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function requestDeleteAccountOtp(): Promise<ApiResponse<object>> {
+  return apiRequest<object>('/api/auth/request-delete-otp', {
+    method: 'POST',
+  });
+}
+
+export async function deleteAccount(otpCode: string): Promise<ApiResponse<object>> {
+  return apiRequest<object>('/api/auth/account', {
+    method: 'DELETE',
+    body: JSON.stringify({ otpCode }),
+  });
+}
+
+// ==================== PDF Document APIs ====================
+
+export interface PdfSignatureBlockDto {
+  id: string;
+  pageNumber: number;
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+  signerRole: string;
+  isSigned?: boolean;
+  signatureId?: string;
+}
+
+export interface ApplyPdfSignatureRequestDto {
+  signatureBlockId: string;
+  signatureImageBase64: string;
+  signerName?: string;
+  signerEmail?: string;
+}
+
+export async function updatePdfSignatureBlocks(documentId: string, signatureBlocks: PdfSignatureBlockDto[]): Promise<ApiResponse<DocumentResponseDto>> {
+  return apiRequest<DocumentResponseDto>(`/api/documents/${documentId}/pdf-signature-blocks`, {
+    method: 'PUT',
+    body: JSON.stringify(signatureBlocks),
+  });
+}
+
+export async function applyPdfSignature(documentId: string, request: ApplyPdfSignatureRequestDto): Promise<ApiResponse<DocumentResponseDto>> {
+  return apiRequest<DocumentResponseDto>(`/api/documents/${documentId}/apply-pdf-signature`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function exportPdfWithSignatures(documentId: string): Promise<Blob> {
+  const token = typeof window !== 'undefined' ? document.cookie.split('; ').find(row => row.startsWith('jwt_token='))?.split('=')[1] || null : await getAuthToken();
+  const headers: Record<string, string> = {};
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100'}/api/documents/${documentId}/export-pdf`, {
+    method: 'GET',
+    headers,
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Failed to export PDF' }));
+    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+  }
+
+  return await response.blob();
 }
 
 // ==================== Document APIs ====================

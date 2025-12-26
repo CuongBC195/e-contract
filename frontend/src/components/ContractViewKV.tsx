@@ -454,7 +454,7 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
           )}
 
           {/* Date & Location */}
-          <p className="mb-8">
+          <p className="mb-8 text-right">
             {contract.metadata.createdDate}, tại {contract.metadata.location}
           </p>
 
@@ -466,7 +466,7 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
           {/* Signatures */}
           <div className="mt-12">
-            <p className="text-center mb-8">
+            <p className="text-right mb-8">
               {contract.metadata.location}, {contract.metadata.createdDate}
             </p>
 

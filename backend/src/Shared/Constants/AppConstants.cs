@@ -14,6 +14,7 @@ public static class AppConstants
     // Document ID formats
     public const string ReceiptPrefix = "REC-";
     public const string ContractPrefix = "3DO-";
+    public const string PdfPrefix = "PDF-";
     
     // Email
     public const string FromEmail = "3docorp@gmail.com";

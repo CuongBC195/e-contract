@@ -19,11 +19,20 @@ public class DocumentRepository : IDocumentRepository
         return await _context.Documents
             .Include(d => d.User)
             .Include(d => d.Signatures)
-            .FirstOrDefaultAsync(d => d.Id == id);
+            .FirstOrDefaultAsync(d => d.Id == id && !d.IsDeleted);
     }
 
     public async Task<Document?> GetByIdWithSignaturesAsync(string id)
     {
+        return await _context.Documents
+            .Include(d => d.User)
+            .Include(d => d.Signatures)
+            .FirstOrDefaultAsync(d => d.Id == id && !d.IsDeleted);
+    }
+
+    public async Task<Document?> GetByIdForDeleteAsync(string id)
+    {
+        // Get document without IsDeleted filter (for deletion check)
         return await _context.Documents
             .Include(d => d.User)
             .Include(d => d.Signatures)
@@ -46,10 +55,16 @@ public class DocumentRepository : IDocumentRepository
 
     public async Task<bool> DeleteAsync(string id)
     {
-        var document = await _context.Documents.FindAsync(id);
-        if (document == null) return false;
+        // Use FirstOrDefaultAsync instead of FindAsync to ensure we can query even if soft-deleted
+        var document = await _context.Documents
+            .FirstOrDefaultAsync(d => d.Id == id);
+        if (document == null || document.IsDeleted) return false;
         
-        _context.Documents.Remove(document);
+        // Soft delete
+        document.IsDeleted = true;
+        document.DeletedAt = DateTime.UtcNow;
+        document.UpdatedAt = DateTime.UtcNow;
+        
         await _context.SaveChangesAsync();
         return true;
     }
@@ -57,7 +72,7 @@ public class DocumentRepository : IDocumentRepository
     public async Task<List<Document>> GetByUserIdAsync(Guid userId, DocumentStatus? status = null, DocumentType? type = null, int page = 1, int pageSize = 20)
     {
         var query = _context.Documents
-            .Where(d => d.UserId == userId)
+            .Where(d => d.UserId == userId && !d.IsDeleted)
             .Include(d => d.Signatures)
             .AsQueryable();
         
@@ -77,6 +92,7 @@ public class DocumentRepository : IDocumentRepository
     public async Task<List<Document>> GetAllAsync(DocumentStatus? status = null, DocumentType? type = null, int page = 1, int pageSize = 20)
     {
         var query = _context.Documents
+            .Where(d => !d.IsDeleted)
             .Include(d => d.User)
             .Include(d => d.Signatures)
             .AsQueryable();
@@ -96,7 +112,7 @@ public class DocumentRepository : IDocumentRepository
 
     public async Task<int> GetTotalCountAsync(Guid? userId = null, DocumentStatus? status = null, DocumentType? type = null)
     {
-        var query = _context.Documents.AsQueryable();
+        var query = _context.Documents.Where(d => !d.IsDeleted).AsQueryable();
         
         if (userId.HasValue)
             query = query.Where(d => d.UserId == userId.Value);

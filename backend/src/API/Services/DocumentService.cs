@@ -76,8 +76,12 @@ public class DocumentService : IDocumentService
 
     public async Task<bool> DeleteDocumentAsync(string id)
     {
-        var document = await _documentRepository.GetByIdAsync(id);
+        // Use GetByIdForDeleteAsync to get document without IsDeleted filter
+        var document = await _documentRepository.GetByIdForDeleteAsync(id);
         if (document == null) return false;
+        
+        // Check if already deleted
+        if (document.IsDeleted) return false;
 
         if (document.Status == DocumentStatus.Signed)
             throw new InvalidOperationException("Không thể xóa tài liệu đã được ký đầy đủ");

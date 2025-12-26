@@ -128,17 +128,7 @@ Tạo database PostgreSQL:
 CREATE DATABASE e_contract;
 ```
 
-#### Copy và cấu hình `backend/appsettings.json`
-
-**QUAN TRỌNG**: File `appsettings.json` không được commit lên git vì chứa thông tin nhạy cảm.
-
-Tạo file `backend/appsettings.json` từ template:
-
-```bash
-cp backend/appsettings.example.json backend/appsettings.json
-```
-
-Sau đó chỉnh sửa `backend/appsettings.json` với thông tin thực tế của bạn:
+#### Cấu hình `backend/appsettings.json`
 
 ```json
 {

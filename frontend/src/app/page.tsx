@@ -28,7 +28,9 @@ import { formatVietnameseDate } from '@/lib/utils';
 import type { Receipt } from '@/lib/kv';
 import ReceiptViewKV from '@/components/ReceiptViewKV';
 import ContractViewKV from '@/components/ContractViewKV';
+import PDFViewKV from '@/components/PDFViewKV';
 import DashboardKV from '@/components/DashboardKV';
+import LoadingLogo from '@/components/LoadingLogo';
 
 // Icon mapping
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
@@ -51,9 +53,9 @@ const COLOR_MAP: Record<string, string> = {
   orange: 'bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200',
 };
 
-// Component to detect and render correct view (Receipt or Contract)
+// Component to detect and render correct view (Receipt, Contract, or PDF)
 function ReceiptOrContractView({ receiptId }: { receiptId: string }) {
-  const [documentType, setDocumentType] = useState<'receipt' | 'contract' | null>(null);
+  const [documentType, setDocumentType] = useState<'receipt' | 'contract' | 'pdf' | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -63,7 +65,10 @@ function ReceiptOrContractView({ receiptId }: { receiptId: string }) {
         const data = await res.json();
         
         if (data.success && data.receipt) {
-          if (data.receipt.document) {
+          // Check if it's a PDF document
+          if (receiptId.startsWith('PDF-') || data.receipt.pdfUrl || data.receipt.type === 'pdf') {
+            setDocumentType('pdf');
+          } else if (data.receipt.document) {
             setDocumentType('contract');
           } else {
             setDocumentType('receipt');
@@ -86,6 +91,10 @@ function ReceiptOrContractView({ receiptId }: { receiptId: string }) {
         <Loader2 className="w-8 h-8 animate-spin text-gray-600" />
       </div>
     );
+  }
+
+  if (documentType === 'pdf') {
+    return <PDFViewKV receiptId={receiptId} />;
   }
 
   if (documentType === 'contract') {
@@ -139,15 +148,27 @@ function HomeContent() {
 
         // 🔒 SECURITY: Only load documents if authenticated
         if (authenticated) {
-          const docsRes = await fetch('/api/receipts/list');
-          if (!docsRes.ok) {
-            throw new Error('Failed to load documents');
-          }
-          const docsData = await docsRes.json().catch(() => ({ success: false }));
-          if (docsData.success) {
-            // Show only signed documents
-            const signed = (docsData.receipts || []).filter((r: Receipt) => r.status === 'signed');
-            setPublicDocuments(signed.slice(0, 20)); // Show latest 20
+          try {
+            const docsRes = await fetch('/api/receipts/list');
+            if (!docsRes.ok) {
+              const errorData = await docsRes.json().catch(() => ({ error: 'Unknown error' }));
+              console.error('Failed to load documents:', errorData);
+              // Don't throw, just set empty array
+              setPublicDocuments([]);
+              return;
+            }
+            const docsData = await docsRes.json().catch(() => ({ success: false }));
+            if (docsData.success) {
+              // Show only signed documents
+              const signed = (docsData.receipts || []).filter((r: Receipt) => r.status === 'signed');
+              setPublicDocuments(signed.slice(0, 20)); // Show latest 20
+            } else {
+              setPublicDocuments([]);
+            }
+          } catch (fetchError) {
+            console.error('Error fetching documents:', fetchError);
+            // Don't throw, just set empty array
+            setPublicDocuments([]);
           }
         } else {
           // Not authenticated - don't load documents
@@ -176,15 +197,7 @@ function HomeContent() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-glass">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 bg-black/90 rounded-2xl flex items-center justify-center">
-            <FileText className="w-8 h-8 text-white animate-pulse" />
-          </div>
-          <div className="flex items-center gap-2 text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>Đang tải...</span>
-          </div>
-        </div>
+        <LoadingLogo size="md" text="Đang tải..." />
       </div>
     );
   }

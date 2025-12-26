@@ -43,6 +43,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.PdfUrl).HasMaxLength(500);
             entity.Property(e => e.ContractNumber).HasMaxLength(100);
             entity.Property(e => e.Location).HasMaxLength(255);
+            entity.Property(e => e.PdfSignatureBlocksJson).HasColumnType("text"); // Use TEXT instead of VARCHAR(4000) to avoid size limits
             
             entity.HasOne(e => e.User)
                 .WithMany(u => u.Documents)

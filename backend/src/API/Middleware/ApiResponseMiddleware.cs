@@ -14,9 +14,11 @@ public class ApiResponseMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Skip wrapping for certain paths (like Swagger)
+        // Skip wrapping for certain paths (like Swagger, static files, and PDF endpoint)
         if (context.Request.Path.StartsWithSegments("/swagger") ||
-            context.Request.Path.StartsWithSegments("/api/docs"))
+            context.Request.Path.StartsWithSegments("/api/docs") ||
+            context.Request.Path.StartsWithSegments("/pdfs") ||
+            context.Request.Path.StartsWithSegments("/api/documents/pdf"))
         {
             await _next(context);
             return;
@@ -71,7 +73,7 @@ public class ApiResponseMiddleware
                         }
 
                         var wrappedResponse = ApiResponse<object>.Success(
-                            data,
+                            data ?? new object(),
                             GetSuccessMessage(context),
                             context.Response.StatusCode
                         );

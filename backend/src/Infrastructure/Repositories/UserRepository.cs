@@ -17,13 +17,13 @@ public class UserRepository : IUserRepository
     {
         return await _context.Users
             .Include(u => u.Documents)
-            .FirstOrDefaultAsync(u => u.Id == id);
+            .FirstOrDefaultAsync(u => u.Id == id && !u.IsDeleted);
     }
 
     public async Task<User?> GetByEmailAsync(string email)
     {
         return await _context.Users
-            .FirstOrDefaultAsync(u => u.Email == email);
+            .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted);
     }
 
     public async Task<User> CreateAsync(User user)
@@ -43,16 +43,20 @@ public class UserRepository : IUserRepository
     public async Task<bool> DeleteAsync(Guid id)
     {
         var user = await _context.Users.FindAsync(id);
-        if (user == null) return false;
+        if (user == null || user.IsDeleted) return false;
         
-        _context.Users.Remove(user);
+        // Soft delete
+        user.IsDeleted = true;
+        user.DeletedAt = DateTime.UtcNow;
+        user.UpdatedAt = DateTime.UtcNow;
+        
         await _context.SaveChangesAsync();
         return true;
     }
 
     public async Task<List<User>> GetAllAsync(int page = 1, int pageSize = 20, string? search = null)
     {
-        var query = _context.Users.AsQueryable();
+        var query = _context.Users.Where(u => !u.IsDeleted).AsQueryable();
         
         if (!string.IsNullOrEmpty(search))
         {
@@ -70,7 +74,7 @@ public class UserRepository : IUserRepository
 
     public async Task<int> GetTotalCountAsync(string? search = null)
     {
-        var query = _context.Users.AsQueryable();
+        var query = _context.Users.Where(u => !u.IsDeleted).AsQueryable();
         
         if (!string.IsNullOrEmpty(search))
         {

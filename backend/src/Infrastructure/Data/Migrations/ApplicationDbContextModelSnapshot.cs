@@ -42,9 +42,18 @@ namespace backend.src.Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Location")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
+
+                    b.Property<string>("PdfSignatureBlocksJson")
+                        .HasColumnType("text");
 
                     b.Property<string>("PdfUrl")
                         .HasMaxLength(500)
@@ -209,6 +218,9 @@ namespace backend.src.Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -223,6 +235,9 @@ namespace backend.src.Infrastructure.Data.Migrations
                     b.Property<bool>("EmailVerified")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -231,11 +246,11 @@ namespace backend.src.Infrastructure.Data.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<DateTime?>("OtpExpiry")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("OtpCode")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("OtpExpiry")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -264,6 +279,46 @@ namespace backend.src.Infrastructure.Data.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("Domain.ValueObjects.PdfSignatureBlock", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentId")
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<double>("HeightPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("IsSigned")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("PageNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SignatureId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SignerRole")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<double>("WidthPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("XPercent")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("YPercent")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.ToTable("PdfSignatureBlock");
+                });
+
             modelBuilder.Entity("Domain.Entities.Document", b =>
                 {
                     b.HasOne("Domain.Entities.User", "User")
@@ -285,8 +340,17 @@ namespace backend.src.Infrastructure.Data.Migrations
                     b.Navigation("Document");
                 });
 
+            modelBuilder.Entity("Domain.ValueObjects.PdfSignatureBlock", b =>
+                {
+                    b.HasOne("Domain.Entities.Document", null)
+                        .WithMany("PdfSignatureBlocks")
+                        .HasForeignKey("DocumentId");
+                });
+
             modelBuilder.Entity("Domain.Entities.Document", b =>
                 {
+                    b.Navigation("PdfSignatureBlocks");
+
                     b.Navigation("Signatures");
                 });
 

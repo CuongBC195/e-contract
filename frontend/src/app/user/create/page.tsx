@@ -82,6 +82,7 @@ export default function UserCreatePage() {
     router.push(`/user/editor?template=${template.id}`);
   };
 
+
   if (loading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-glass">

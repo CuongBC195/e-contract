@@ -36,6 +36,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<ISignatureService, SignatureService>();
 builder.Services.AddScoped<IPdfService, PdfService>();
+builder.Services.AddScoped<IPdfSignatureService, PdfSignatureService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 
 // JWT Authentication
@@ -94,6 +95,20 @@ app.UseSwaggerUI(c =>
 
 // HTTPS redirection - only enable in production or when HTTPS is configured
 // app.UseHttpsRedirection(); // Disabled for development HTTP-only mode
+
+// Enable static file serving from wwwroot folder (for PDF files)
+// Must be before routing/authentication to serve static files
+var staticFileOptions = new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        // Allow CORS for static files
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET");
+    }
+};
+app.UseStaticFiles(staticFileOptions);
+
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseMiddleware<JwtMiddleware>();

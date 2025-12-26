@@ -272,6 +272,45 @@ Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.
         }
     }
 
+    public async Task SendDeleteAccountOtpEmailAsync(string toEmail, string toName, string otpCode)
+    {
+        var smtpHost = _configuration["Email:SmtpHost"] ?? "smtp.gmail.com";
+        var smtpPort = int.Parse(_configuration["Email:SmtpPort"] ?? "587");
+        var smtpUsername = _configuration["Email:SmtpUsername"] ?? throw new InvalidOperationException("Email:SmtpUsername not configured");
+        var smtpPassword = _configuration["Email:SmtpPassword"] ?? throw new InvalidOperationException("Email:SmtpPassword not configured");
+        var fromEmail = _configuration["Email:FromEmail"] ?? AppConstants.FromEmail;
+        var fromName = _configuration["Email:FromName"] ?? AppConstants.FromName;
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(fromName, fromEmail));
+        message.To.Add(new MailboxAddress(toName, toEmail));
+        message.Subject = "Mã OTP xác nhận xóa tài khoản";
+
+        var bodyBuilder = new BodyBuilder
+        {
+            HtmlBody = GetDeleteAccountOtpEmailHtml(toName, otpCode),
+            TextBody = GetDeleteAccountOtpEmailText(toName, otpCode)
+        };
+
+        message.Body = bodyBuilder.ToMessageBody();
+
+        try
+        {
+            using var client = new SmtpClient();
+            await client.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.StartTls);
+            await client.AuthenticateAsync(smtpUsername, smtpPassword);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+            
+            _logger.LogInformation("Delete account OTP email sent to {Email}", toEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending delete account OTP email to {Email}", toEmail);
+            throw;
+        }
+    }
+
     public async Task SendEmailVerificationEmailAsync(string toEmail, string toName, string verificationToken, string verificationUrl)
     {
         var smtpHost = _configuration["Email:SmtpHost"] ?? "smtp.gmail.com";
@@ -407,6 +446,75 @@ Cảm ơn bạn đã đăng ký tài khoản. Mã OTP của bạn là:
 Mã OTP này sẽ hết hạn sau 10 phút.
 
 Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email này.
+";
+    }
+
+    private string GetDeleteAccountOtpEmailHtml(string name, string otpCode)
+    {
+        return $@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=""utf-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>Mã OTP xác nhận xóa tài khoản</title>
+</head>
+<body style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%); padding: 20px; margin: 0;"">
+    <div style=""max-width: 600px; margin: 0 auto; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 24px; padding: 40px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);"">
+        <!-- Header -->
+        <div style=""text-align: center; margin-bottom: 32px;"">
+            <h1 style=""color: #dc2626; font-size: 24px; font-weight: bold; margin: 0; margin-bottom: 8px;"">Mã OTP xác nhận xóa tài khoản</h1>
+            <p style=""color: #6b7280; font-size: 14px; margin: 0;"">Nhập mã OTP để xác nhận xóa tài khoản của bạn</p>
+        </div>
+        
+        <!-- Warning -->
+        <div style=""background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 16px; margin-bottom: 24px;"">
+            <p style=""color: #991b1b; font-size: 14px; line-height: 1.6; margin: 0;"">
+                <strong>Cảnh báo:</strong> Hành động này không thể hoàn tác. Tất cả dữ liệu của bạn sẽ bị xóa vĩnh viễn.
+            </p>
+        </div>
+        
+        <!-- Content -->
+        <div style=""margin-bottom: 32px;"">
+            <p style=""color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 16px;"">
+                Xin chào <strong style=""color: #1a1a1a;"">{name}</strong>,
+            </p>
+            <p style=""color: #6b7280; font-size: 16px; line-height: 1.6; margin-bottom: 24px;"">
+                Bạn đã yêu cầu xóa tài khoản. Mã OTP xác nhận của bạn là:
+            </p>
+            <div style=""text-align: center; margin: 32px 0;"">
+                <div style=""display: inline-block; background: #dc2626; color: white; padding: 16px 32px; border-radius: 12px; font-weight: bold; font-size: 32px; letter-spacing: 8px; font-family: 'Courier New', monospace;"">{otpCode}</div>
+            </div>
+            <p style=""color: #6b7280; font-size: 14px; line-height: 1.6; margin-top: 24px; text-align: center;"">
+                Mã OTP này sẽ hết hạn sau 10 phút.
+            </p>
+        </div>
+        
+        <!-- Footer -->
+        <p style=""color: #9ca3af; font-size: 14px; line-height: 1.6; margin-top: 32px; text-align: center;"">
+            Nếu bạn không yêu cầu xóa tài khoản, vui lòng bỏ qua email này và thay đổi mật khẩu của bạn ngay lập tức.
+        </p>
+    </div>
+</body>
+</html>";
+    }
+
+    private string GetDeleteAccountOtpEmailText(string name, string otpCode)
+    {
+        return $@"
+Mã OTP xác nhận xóa tài khoản
+
+Xin chào {name},
+
+CẢNH BÁO: Hành động này không thể hoàn tác. Tất cả dữ liệu của bạn sẽ bị xóa vĩnh viễn.
+
+Bạn đã yêu cầu xóa tài khoản. Mã OTP xác nhận của bạn là:
+
+{otpCode}
+
+Mã OTP này sẽ hết hạn sau 10 phút.
+
+Nếu bạn không yêu cầu xóa tài khoản, vui lòng bỏ qua email này và thay đổi mật khẩu của bạn ngay lập tức.
 ";
     }
 

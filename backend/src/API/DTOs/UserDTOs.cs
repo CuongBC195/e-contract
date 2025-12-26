@@ -28,3 +28,19 @@ public class UpdateUserRequestDto
     public bool? EmailVerified { get; set; }
 }
 
+public class UpdateProfileRequestDto
+{
+    public string? Name { get; set; }
+}
+
+public class ChangePasswordRequestDto
+{
+    public string CurrentPassword { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class DeleteAccountRequestDto
+{
+    public string OtpCode { get; set; } = string.Empty;
+}
+

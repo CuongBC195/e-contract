@@ -494,7 +494,7 @@ export default function DocumentEditorKV({
                 </div>
 
                 {/* Date & Location */}
-                <div className="px-6 pt-4 text-sm" style={{ fontFamily: 'var(--font-tinos), serif' }}>
+                <div className="px-6 pt-4 text-sm text-right" style={{ fontFamily: 'var(--font-tinos), serif' }}>
                   <p>{createdDate}, tại {location}</p>
                 </div>
 
@@ -507,7 +507,7 @@ export default function DocumentEditorKV({
 
                 {/* Footer - Signatures */}
                 <div className="px-6 pb-6 pt-4 border-t border-gray-200">
-                  <div className="text-left mb-4 text-sm" style={{ fontFamily: 'var(--font-tinos), serif' }}>
+                  <div className="text-right mb-4 text-sm" style={{ fontFamily: 'var(--font-tinos), serif' }}>
                     <p className="italic">{location}, {createdDate}</p>
                   </div>
 

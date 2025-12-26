@@ -90,7 +90,7 @@ public class AuthService : IAuthService
         {
             return await _userRepository.CreateAsync(user);
         }
-        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
             // Handle race condition: if email was added between check and create
             // Check again to see if user was created
@@ -160,6 +160,75 @@ public class AuthService : IAuthService
         user.PasswordResetToken = null;
         user.PasswordResetExpiry = null;
         await _userRepository.UpdateAsync(user);
+
+        return true;
+    }
+
+    public async Task<User> UpdateProfileAsync(Guid userId, string? name)
+    {
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            throw new InvalidOperationException("User not found");
+
+        if (!string.IsNullOrWhiteSpace(name))
+            user.Name = name.Trim();
+
+        user.UpdatedAt = DateTime.UtcNow;
+        return await _userRepository.UpdateAsync(user);
+    }
+
+    public async Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
+    {
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return false;
+
+        // Verify current password
+        if (!PasswordHelper.VerifyPassword(currentPassword, user.PasswordHash))
+            return false;
+
+        // Validate new password
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 6)
+            throw new InvalidOperationException("Mật khẩu mới phải có ít nhất 6 ký tự");
+
+        // Update password
+        user.PasswordHash = PasswordHelper.HashPassword(newPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+        await _userRepository.UpdateAsync(user);
+
+        return true;
+    }
+
+    public async Task<string> RequestDeleteAccountOtpAsync(Guid userId)
+    {
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            throw new InvalidOperationException("User not found");
+
+        // Generate 6-digit OTP
+        var random = new Random();
+        var otpCode = random.Next(100000, 999999).ToString();
+
+        // Store OTP in user record
+        user.OtpCode = otpCode;
+        user.OtpExpiry = DateTime.UtcNow.AddMinutes(10); // OTP expires in 10 minutes
+        user.UpdatedAt = DateTime.UtcNow;
+        await _userRepository.UpdateAsync(user);
+
+        return otpCode;
+    }
+
+    public async Task<bool> VerifyDeleteAccountOtpAsync(Guid userId, string otpCode)
+    {
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return false;
+
+        // Check if OTP matches and is not expired
+        if (user.OtpCode != otpCode || 
+            !user.OtpExpiry.HasValue || 
+            user.OtpExpiry.Value <= DateTime.UtcNow)
+            return false;
 
         return true;
     }

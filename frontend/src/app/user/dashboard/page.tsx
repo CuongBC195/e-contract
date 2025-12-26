@@ -19,6 +19,7 @@ import {
   Receipt as ReceiptIcon,
   ChevronLeft,
   ChevronRight,
+  User,
 } from 'lucide-react';
 import { formatVietnameseDate, formatNumber } from '@/lib/utils';
 import { ToastContainer, useToast } from '@/components/Toast';
@@ -32,25 +33,25 @@ function getDocumentType(receipt: Receipt): 'contract' | 'receipt' {
 
 // Helper: Get display title
 function getDocumentTitle(receipt: Receipt): string {
-  if (receipt.document) {
+  if (receipt.document?.title) {
     return receipt.document.title;
   }
-  if (receipt.data) {
-    return receipt.data.title || 'Biên nhận tiền';
+  if (receipt.data?.title) {
+    return receipt.data.title;
   }
   return 'Biên nhận tiền';
 }
 
 // Helper: Get receipt field value
 function getReceiptField(receipt: Receipt, fieldId: string): string {
-  if (receipt.document) {
+  if (receipt.document?.signers) {
     const signer = receipt.document.signers.find(s => s.role === 'Bên A' || s.role === 'Bên B');
-    if (fieldId === 'hoTenNguoiNhan' && signer) return signer.name;
+    if (fieldId === 'hoTenNguoiNhan' && signer?.name) return signer.name;
     return '';
   }
   if (receipt.data?.fields) {
     const field = receipt.data.fields.find(f => f.id === fieldId);
-    if (field) return field.value;
+    if (field?.value) return field.value;
   }
   if (receipt.info) {
     const legacyValue = receipt.info[fieldId as keyof typeof receipt.info];
@@ -76,7 +77,7 @@ function getReceiptAmount(receipt: Receipt): number {
 
 // Helper: Check if document is fully signed (2 signatures)
 function isFullySigned(receipt: Receipt): boolean {
-  if (receipt.document) {
+  if (receipt.document?.signers) {
     const signedCount = receipt.document.signers.filter(s => s.signed).length;
     return signedCount >= 2;
   }
@@ -137,17 +138,30 @@ export default function UserDashboard() {
       setLoading(true);
       const res = await fetch(`/api/user/receipts?page=${page}`);
       if (!res.ok) {
-        throw new Error('Failed to load receipts');
+        // Don't throw, just log and set empty
+        console.warn('Failed to load receipts:', res.status, res.statusText);
+        setReceipts([]);
+        setTotalPages(0);
+        setTotalCount(0);
+        return;
       }
       const data = await res.json().catch(() => ({ success: false }));
       if (data.success) {
         setReceipts(data.receipts || []);
         setTotalPages(data.pagination?.totalPages || Math.ceil((data.pagination?.total || 0) / 4));
         setTotalCount(data.pagination?.total || 0);
+      } else {
+        // If not success, set empty arrays
+        setReceipts([]);
+        setTotalPages(0);
+        setTotalCount(0);
       }
     } catch (error) {
       console.error('Error loading receipts:', error);
-      showToast('Lỗi khi tải danh sách văn bản', 'error');
+      // Don't show toast on every error, just log
+      setReceipts([]);
+      setTotalPages(0);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
@@ -280,8 +294,9 @@ export default function UserDashboard() {
   };
 
   const filteredReceipts = receipts.filter((receipt) => {
+    if (!searchTerm) return true;
     const title = getDocumentTitle(receipt).toLowerCase();
-    const id = receipt.id.toLowerCase();
+    const id = (receipt.id || '').toLowerCase();
     const search = searchTerm.toLowerCase();
     return title.includes(search) || id.includes(search);
   });
@@ -321,13 +336,22 @@ export default function UserDashboard() {
                 <p className="text-sm text-gray-500">Dashboard User</p>
               </div>
             </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
-            >
-              <LogOut className="w-5 h-5" />
-              <span className="hidden sm:inline">Đăng xuất</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push('/user/profile')}
+                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
+              >
+                <User className="w-5 h-5" />
+                <span className="hidden sm:inline">Hồ sơ</span>
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="hidden sm:inline">Đăng xuất</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -447,7 +471,7 @@ export default function UserDashboard() {
                           </p>
                           <p className="text-sm text-gray-500">
                             {isContract 
-                              ? `${receipt.document?.signers.length || 0} bên ký` 
+                              ? `${receipt.document?.signers?.length || 0} bên ký` 
                               : (getReceiptField(receipt, 'donViNguoiNhan') || '-')}
                           </p>
                         </div>
@@ -456,12 +480,12 @@ export default function UserDashboard() {
                         <div>
                           <p className="font-medium text-gray-900">
                             {isContract 
-                              ? (receipt.document?.signers[0]?.name || '-')
+                              ? (receipt.document?.signers?.[0]?.name || '-')
                               : (getReceiptField(receipt, 'hoTenNguoiGui') || 'N/A')}
                           </p>
                           <p className="text-sm text-gray-500">
                             {isContract 
-                              ? (receipt.document?.signers[0]?.organization || '-')
+                              ? (receipt.document?.signers?.[0]?.organization || '-')
                               : (getReceiptField(receipt, 'donViNguoiGui') || '-')}
                           </p>
                         </div>
