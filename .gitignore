@@ -39,7 +39,11 @@ yarn-error.log*
 .env.local
 .env.production
 .env.development
-backend/appsettings.Development.json
+
+# Backend Configuration (contains sensitive data)
+backend/appsettings.json
+backend/appsettings.*.json
+!backend/appsettings.example.json
 
 # Database
 *.db
