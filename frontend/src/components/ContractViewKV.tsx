@@ -11,6 +11,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import SignatureModal, { SignatureResult } from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
@@ -350,10 +351,23 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
     setExporting(true);
 
     try {
-      const dataUrl = await toPng(contractRef.current, {
-        quality: 1.0,
+      // Ensure container is fully visible and scroll to top
+      contractRef.current.scrollIntoView({ behavior: 'instant', block: 'start' });
+      await new Promise(resolve => setTimeout(resolve, 100)); // Wait for scroll
+      
+      // Use html2canvas to capture full content including scrollable parts
+      const canvas = await html2canvas(contractRef.current, {
+        scale: 2,
         backgroundColor: '#ffffff',
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        width: contractRef.current.scrollWidth,
+        height: contractRef.current.scrollHeight,
       });
+      const fullImageData = canvas.toDataURL('image/png', 1.0);
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -362,26 +376,97 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
       });
 
       const img = new Image();
-      img.src = dataUrl;
+      img.src = fullImageData;
       await new Promise((resolve) => {
         img.onload = resolve;
       });
 
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgRatio = img.width / img.height;
-      const pageRatio = pageWidth / pageHeight;
-
-      let finalWidth, finalHeight;
-      if (imgRatio > pageRatio) {
-        finalWidth = pageWidth;
-        finalHeight = pageWidth / imgRatio;
+      const pageWidth = pdf.internal.pageSize.getWidth(); // A4 width: 210mm
+      const pageHeight = pdf.internal.pageSize.getHeight(); // A4 height: 297mm
+      
+      // Container is 210mm in CSS, we want to fit it in A4 with small margins
+      // Use minimal margins: 3mm left (shift left), 7mm right (prevent overflow)
+      const leftMargin = 3; // 3mm left margin (shift left)
+      const rightMargin = 7; // 7mm right margin (prevent overflow)
+      const usableWidth = pageWidth - leftMargin - rightMargin; // 200mm
+      
+      // Calculate scale: container 210mm -> fit in 200mm
+      const scale = usableWidth / 210;
+      const imgWidth = usableWidth; // 200mm in PDF
+      
+      // Calculate full image height in PDF units (mm)
+      // Image aspect ratio: img.height / img.width
+      // Container width is 210mm, so height = 210 * (img.height / img.width)
+      const containerHeightMm = 210 * (img.height / img.width);
+      const imgHeight = containerHeightMm * scale; // Scaled height in mm for PDF
+      
+      // Minimal vertical margins
+      const topMargin = 5;
+      const bottomMargin = 5;
+      const usableHeight = pageHeight - topMargin - bottomMargin; // 287mm
+      
+      // Split into multiple pages if needed
+      if (imgHeight > usableHeight) {
+        // Calculate pixels per mm in source image
+        const pixelsPerMm = img.width / 210;
+        
+        let sourceY = 0; // Current position in source image (in pixels)
+        let pageNumber = 0;
+        
+        while (sourceY < img.height) {
+          if (pageNumber > 0) {
+            pdf.addPage();
+          }
+          
+          // Calculate how much height to show on this page (in mm)
+          const remainingHeightMm = (img.height - sourceY) / pixelsPerMm / scale;
+          const pageHeightToShowMm = Math.min(usableHeight, remainingHeightMm);
+          
+          // Convert page height to pixels in source image
+          const sourceHeight = pageHeightToShowMm * scale * pixelsPerMm;
+          
+          // Ensure we don't exceed image bounds
+          const actualSourceHeight = Math.min(sourceHeight, img.height - sourceY);
+          
+          // Create a temporary canvas to crop this page's portion
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = img.width;
+          pageCanvas.height = actualSourceHeight;
+          const pageCtx = pageCanvas.getContext('2d');
+          
+          if (pageCtx) {
+            // Draw the cropped portion
+            pageCtx.drawImage(
+              img,
+              0, sourceY, img.width, actualSourceHeight, // Source: crop from sourceY
+              0, 0, img.width, actualSourceHeight // Destination: full canvas
+            );
+            
+            const pageDataUrl = pageCanvas.toDataURL('image/png', 1.0);
+            
+            // Add cropped image to PDF
+            pdf.addImage(
+              pageDataUrl,
+              'PNG',
+              leftMargin,
+              topMargin,
+              imgWidth,
+              pageHeightToShowMm
+            );
+          }
+          
+          // Move to next page position
+          sourceY += actualSourceHeight;
+          pageNumber++;
+          
+          // Safety check to avoid infinite loop
+          if (actualSourceHeight <= 0) break;
+        }
       } else {
-        finalHeight = pageHeight;
-        finalWidth = pageHeight * imgRatio;
+        // Single page - fit with margins
+        pdf.addImage(fullImageData, 'PNG', leftMargin, topMargin, imgWidth, imgHeight, undefined, 'FAST');
       }
 
-      pdf.addImage(dataUrl, 'PNG', 0, 0, finalWidth, finalHeight);
       pdf.save(`Hop_Dong_${receiptId}.pdf`);
 
       showToast('Đã tải xuống PDF', 'success');
@@ -423,8 +508,27 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
   return (
     <div className="min-h-screen bg-gradient-glass py-8 px-4">
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+      
+      {/* CSS for contract content to fit A4 */}
+      <style jsx global>{`
+        [data-contract-content] * {
+          max-width: 100% !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+          box-sizing: border-box !important;
+        }
+        [data-contract-content] table {
+          width: 100% !important;
+          max-width: 100% !important;
+          table-layout: fixed !important;
+        }
+        [data-contract-content] img {
+          max-width: 100% !important;
+          height: auto !important;
+        }
+      `}</style>
 
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto" style={{ paddingLeft: '8px' }}>
         {/* Success Banner */}
         {completed && (
           <div className="glass-card rounded-2xl p-6 mb-6 text-center border-2 border-green-400">
@@ -439,7 +543,17 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
         )}
 
         {/* Contract Content */}
-        <div ref={contractRef} className="glass-card rounded-2xl p-8 mb-6" style={{ fontFamily: 'var(--font-tinos), serif' }}>
+        <div 
+          ref={contractRef} 
+          className="glass-card rounded-2xl p-8 mb-6" 
+          style={{ 
+            fontFamily: 'var(--font-tinos), serif',
+            width: '210mm', // A4 width
+            maxWidth: '100%',
+            margin: '0 auto',
+            boxSizing: 'border-box'
+          }}
+        >
           {/* Header */}
           <div className="text-center mb-8">
             <p className="font-bold">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</p>
@@ -460,7 +574,13 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
           {/* Content */}
           <div
+            data-contract-content
             className="mb-8 leading-relaxed"
+            style={{
+              width: '100%',
+              wordWrap: 'break-word',
+              overflowWrap: 'break-word',
+            }}
             dangerouslySetInnerHTML={{ __html: contract.content }}
           />
 

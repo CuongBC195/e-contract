@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, FileText } from 'lucide-react';
 import DocumentEditorKV, { DocumentEditorData } from '@/components/DocumentEditorKV';
 import ReceiptEditorKV from '@/components/ReceiptEditorKV';
-import PDFViewKV from '@/components/PDFViewKV';
 import { getTemplateById, type ContractTemplate } from '@/data/templates';
 import { useToast, ToastContainer } from '@/components/Toast';
 import type { Receipt } from '@/lib/kv';
@@ -19,7 +18,7 @@ function EditorContent() {
   const [initialData, setInitialData] = useState<any>();
   const [receiptData, setReceiptData] = useState<Receipt | null>(null);
   const [mode, setMode] = useState<'create' | 'edit'>('create');
-  const [documentType, setDocumentType] = useState<'contract' | 'receipt' | 'pdf' | null>(null);
+  const [documentType, setDocumentType] = useState<'contract' | 'receipt' | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -74,14 +73,6 @@ function EditorContent() {
         
         if (data.success && data.receipt) {
           const receipt = data.receipt as Receipt;
-          
-          // Check if it's a PDF document (by mode parameter or document ID prefix)
-          if (modeParam === 'pdf' || editId.startsWith('PDF-')) {
-            setDocumentType('pdf');
-            setMode('edit');
-            setReceiptData(receipt);
-            return;
-          }
           
           // Determine if it's a contract or receipt
           if (receipt.document) {
@@ -231,20 +222,6 @@ function EditorContent() {
     );
   }
 
-  // Render PDF viewer/editor for PDF documents
-  if (documentType === 'pdf' && receiptData) {
-    return (
-      <>
-        <ToastContainer toasts={toasts} onRemove={removeToast} />
-        <PDFViewKV
-          receiptId={receiptData.id}
-          mode={mode}
-          onSave={handleSavePDF}
-          onCancel={handleCancel}
-        />
-      </>
-    );
-  }
 
   // Render receipt editor for receipts
   if (documentType === 'receipt') {

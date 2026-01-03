@@ -224,24 +224,37 @@ function generateHTMLTemplate(options: PDFGeneratorOptions): string {
       box-sizing: border-box;
     }
     
+    html, body {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    
     body {
       font-family: 'Tinos', 'Times New Roman', serif;
       font-size: 14px;
       line-height: 1.8;
       color: #000;
       background: #fff;
-      padding: 0;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      orphans: 3;
+      widows: 3;
     }
     
     .header {
       text-align: center;
       margin-bottom: 32px;
+      width: 100%;
+      page-break-after: avoid;
     }
     
     .header p {
       font-weight: bold;
       text-transform: uppercase;
       margin: 4px 0;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
     
     .header .divider {
@@ -255,6 +268,10 @@ function generateHTMLTemplate(options: PDFGeneratorOptions): string {
       font-weight: bold;
       text-transform: uppercase;
       margin: 24px 0 8px 0;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      width: 100%;
+      page-break-after: avoid;
     }
     
     .contract-number {
@@ -262,32 +279,92 @@ function generateHTMLTemplate(options: PDFGeneratorOptions): string {
       font-style: italic;
       font-size: 13px;
       margin-bottom: 24px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      width: 100%;
+      page-break-after: avoid;
     }
     
     .content {
       margin-bottom: 40px;
       text-align: justify;
+      width: 100%;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      page-break-inside: auto;
+    }
+    
+    .content * {
+      max-width: 100% !important;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
     
     .content p {
       margin: 8px 0;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      width: 100%;
+      page-break-inside: avoid;
+      orphans: 2;
+      widows: 2;
+    }
+    
+    .content div {
+      width: 100%;
+    }
+    
+    .content h2, .content h3, .content h4 {
+      page-break-after: avoid;
+      page-break-inside: avoid;
     }
     
     .content strong {
       font-weight: bold;
     }
     
+    .content table {
+      width: 100% !important;
+      max-width: 100% !important;
+      table-layout: fixed;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      page-break-inside: auto;
+    }
+    
+    .content table tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+    
+    .content table td {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    
     .signatures {
       margin-top: 60px;
       page-break-inside: avoid;
+      page-break-before: auto;
+      width: 100%;
     }
     
     .signature-grid {
       margin-top: 20px;
+      width: 100%;
+    }
+    
+    .signer-box {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      width: 100%;
+      page-break-inside: avoid;
     }
     
     .signer-box p {
       margin: 4px 0;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
   </style>
 </head>

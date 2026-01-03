@@ -28,7 +28,6 @@ import { formatVietnameseDate } from '@/lib/utils';
 import type { Receipt } from '@/lib/kv';
 import ReceiptViewKV from '@/components/ReceiptViewKV';
 import ContractViewKV from '@/components/ContractViewKV';
-import PDFViewKV from '@/components/PDFViewKV';
 import DashboardKV from '@/components/DashboardKV';
 import LoadingLogo from '@/components/LoadingLogo';
 
@@ -55,7 +54,7 @@ const COLOR_MAP: Record<string, string> = {
 
 // Component to detect and render correct view (Receipt, Contract, or PDF)
 function ReceiptOrContractView({ receiptId }: { receiptId: string }) {
-  const [documentType, setDocumentType] = useState<'receipt' | 'contract' | 'pdf' | null>(null);
+  const [documentType, setDocumentType] = useState<'receipt' | 'contract' | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -65,10 +64,8 @@ function ReceiptOrContractView({ receiptId }: { receiptId: string }) {
         const data = await res.json();
         
         if (data.success && data.receipt) {
-          // Check if it's a PDF document
-          if (receiptId.startsWith('PDF-') || data.receipt.pdfUrl || data.receipt.type === 'pdf') {
-            setDocumentType('pdf');
-          } else if (data.receipt.document) {
+          // Check if it's a contract or receipt
+          if (data.receipt.document) {
             setDocumentType('contract');
           } else {
             setDocumentType('receipt');
@@ -91,10 +88,6 @@ function ReceiptOrContractView({ receiptId }: { receiptId: string }) {
         <Loader2 className="w-8 h-8 animate-spin text-gray-600" />
       </div>
     );
-  }
-
-  if (documentType === 'pdf') {
-    return <PDFViewKV receiptId={receiptId} />;
   }
 
   if (documentType === 'contract') {

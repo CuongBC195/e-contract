@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     // Get documents from backend (for current user)
     // Use apiRequest directly with token
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100';
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
     const queryParams = new URLSearchParams({
       page: page.toString(),
       pageSize: pageSize.toString(),

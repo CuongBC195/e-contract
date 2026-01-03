@@ -30,7 +30,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Delete document from backend
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100';
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
     
     const backendResponse = await fetch(`${BACKEND_URL}/api/documents/${id}`, {
       method: 'DELETE',

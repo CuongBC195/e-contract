@@ -83,6 +83,7 @@ export default function UserCreatePage() {
   };
 
 
+
   if (loading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-glass">
@@ -158,6 +159,7 @@ export default function UserCreatePage() {
             ))}
           </div>
         </div>
+
 
         {/* Template Grid */}
         {filteredTemplates.length === 0 ? (

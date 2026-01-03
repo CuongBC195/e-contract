@@ -3,7 +3,7 @@
  * Utility functions to call the .NET backend API
  */
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
 export interface ApiResponse<T> {
   statusCode: number;
@@ -366,7 +366,7 @@ export async function exportPdfWithSignatures(documentId: string): Promise<Blob>
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100'}/api/documents/${documentId}/export-pdf`, {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000'}/api/documents/${documentId}/export-pdf`, {
     method: 'GET',
     headers,
     credentials: 'include',

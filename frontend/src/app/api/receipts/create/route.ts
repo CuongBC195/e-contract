@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     if (document.signers && document.signers.length > 0 && token) {
       const signedSigners = document.signers.filter((s: any) => s.signed && s.signatureData);
       
-      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100';
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
       
       for (const signer of signedSigners) {
         try {

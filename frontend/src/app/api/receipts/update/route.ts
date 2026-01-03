@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Update document via backend API
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100';
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
     
     const backendResponse = await fetch(`${BACKEND_URL}/api/documents/${id}`, {
       method: 'PUT',

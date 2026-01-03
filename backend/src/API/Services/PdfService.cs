@@ -57,12 +57,13 @@ public class PdfService : IPdfService
             {
                 Format = PuppeteerSharp.Media.PaperFormat.A4,
                 PrintBackground = true,
+                PreferCSSPageSize = true, // Use CSS @page settings
                 MarginOptions = new PuppeteerSharp.Media.MarginOptions
                 {
-                    Top = "20mm",
-                    Right = "20mm",
-                    Bottom = "20mm",
-                    Left = "20mm"
+                    Top = "15mm",
+                    Right = "15mm",
+                    Bottom = "15mm",
+                    Left = "15mm"
                 }
             };
 

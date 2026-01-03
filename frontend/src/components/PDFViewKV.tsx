@@ -13,8 +13,12 @@ import {
   Calendar,
   MapPin,
   FileText,
+  Share2,
+  Mail,
+  Copy,
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import SignatureModal, { SignatureResult } from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
@@ -93,6 +97,12 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
   // Action states
   const [signing, setSigning] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [sendStatus, setSendStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  
+  // Share/Invitation states
+  const [emailAddress, setEmailAddress] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
 
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const { toasts, showToast, removeToast } = useToast();
@@ -106,6 +116,52 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
         if (data.success && data.receipt) {
           setReceipt(data.receipt);
           
+          // Initialize signers from document or signatures
+          let initialSigners: Signer[] = [];
+          if (data.receipt.document?.signers && data.receipt.document.signers.length > 0) {
+            // Use signers from document
+            initialSigners = data.receipt.document.signers;
+          } else {
+            // Default signers for PDF
+            initialSigners = [
+              { id: 'signer-0', role: 'Bên A', name: '', position: '', organization: '', signed: false },
+              { id: 'signer-1', role: 'Bên B', name: '', position: '', organization: '', signed: false },
+            ];
+          }
+          
+          // Map signatures from backend to signers
+          if (data.receipt.document?.signatures && data.receipt.document.signatures.length > 0) {
+            const signatures = data.receipt.document.signatures;
+            initialSigners = initialSigners.map(signer => {
+              // Find matching signature by signerId or signerRole
+              const signature = signatures.find((sig: any) => 
+                sig.signerId === signer.id || 
+                sig.signerRole === signer.role ||
+                (sig.signerRole === 'Bên A' && signer.role === 'Bên A') ||
+                (sig.signerRole === 'Bên B' && signer.role === 'Bên B')
+              );
+              
+              if (signature) {
+                return {
+                  ...signer,
+                  signed: true,
+                  signedAt: new Date(signature.signedAt).getTime(),
+                  name: signature.signerName || signer.name || '',
+                  email: signature.signerEmail || signer.email || '',
+                  signatureData: signature.signatureData ? {
+                    type: signature.signatureData.type?.toLowerCase() === 'draw' ? 'draw' : 'type',
+                    data: signature.signatureData.data,
+                    fontFamily: signature.signatureData.fontFamily,
+                    color: signature.signatureData.color,
+                  } : undefined,
+                };
+              }
+              return signer;
+            });
+          }
+          
+          setSigners(initialSigners);
+          
           // Initialize edit state
           if (mode === 'edit') {
             const metadata = data.receipt.document?.metadata;
@@ -113,19 +169,10 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
               setLocation(metadata.location || 'TP. Cần Thơ');
               setCreatedDate(metadata.createdDate || formatVietnameseDate(new Date()));
             }
-            if (data.receipt.document?.signers) {
-              setSigners(data.receipt.document.signers);
-            } else {
-              // Default signers
-              setSigners([
-                { id: 'signer-0', role: 'Bên A', name: '', position: '', organization: '', signed: false },
-                { id: 'signer-1', role: 'Bên B', name: '', position: '', organization: '', signed: false },
-              ]);
-            }
           }
           
           // Check if already fully signed
-          if (data.receipt.status === 'signed') {
+          if (data.receipt.status === 'signed' || isFullySigned(data.receipt)) {
             setCompleted(true);
           }
         } else {
@@ -219,7 +266,11 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
         const data = await res.json();
         if (data.success && data.receipt) {
           setReceipt(data.receipt);
-          setCompleted(isFullySigned(data.receipt));
+          const fullySigned = isFullySigned(data.receipt);
+          setCompleted(fullySigned);
+          if (fullySigned) {
+            showToast('✅ Tất cả các bên đã ký xác nhận!', 'success');
+          }
         }
       } else {
         showToast(response.message || 'Ký thất bại', 'error');
@@ -273,53 +324,125 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
     }
   };
 
-  const handleExportPDF = async () => {
-    if (!pdfContainerRef.current || !receipt) return;
+  // Sign and send - capture screenshot and send email
+  const handleSignAndSend = async () => {
+    if (!receipt || !pdfContainerRef.current) return;
 
-    setExporting(true);
+    // Check if all signers have signed
+    const unsignedSigners = signers.filter(s => !s.signed && !localSignatures[s.id]);
+    if (unsignedSigners.length > 0) {
+      showToast(`Còn ${unsignedSigners.length} bên chưa ký`, 'error');
+      return;
+    }
+
+    setSendStatus('loading');
+
     try {
+      // Step 1: Capture screenshot of PDF with signatures
       const dataUrl = await toPng(pdfContainerRef.current, {
         quality: 1.0,
         backgroundColor: '#ffffff',
         pixelRatio: 2,
       });
 
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
+      // Step 2: Send to server with the captured image
+      const payload = {
+        id: receiptId,
+        receiptImage: dataUrl, // Base64 PNG image
+        signatureNguoiNhan: localSignatures[signers[0]?.id] || undefined,
+        signatureNguoiGui: localSignatures[signers[1]?.id] || undefined,
+      };
+
+      const signRes = await fetch('/api/receipts/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-
-      const img = new Image();
-      img.src = dataUrl;
+      const signData = await signRes.json();
       
-      await new Promise((resolve) => {
-        img.onload = () => {
-          let finalWidth = pageWidth;
-          let finalHeight = (img.height / img.width) * pageWidth;
+      if (!signData.success) {
+        if (signData.code === 'EMPTY_SIGNATURE') {
+          showToast('⚠️ Vui lòng vẽ chữ ký trước khi gửi!', 'error');
+        } else if (signData.code === 'RATE_LIMITED') {
+          const retryAfter = signData.retryAfter || 60;
+          showToast(`⏱️ Vui lòng đợi ${retryAfter} giây trước khi thử lại.`, 'error');
+          setTimeout(() => {
+            setSendStatus('idle');
+          }, retryAfter * 1000);
+          return;
+        } else {
+          showToast(signData.error || 'Có lỗi xảy ra', 'error');
+        }
+        setSendStatus('error');
+        setTimeout(() => setSendStatus('idle'), 2000);
+        return;
+      }
 
-          if (finalHeight > pageHeight) {
-            finalHeight = pageHeight;
-            finalWidth = (img.width / img.height) * pageHeight;
-          }
+      // Mark as success
+      setSendStatus('success');
+      setCompleted(true);
+      showToast('✅ Đã hoàn tất và gửi email!', 'success');
 
-          pdf.addImage(dataUrl, 'PNG', 0, 0, finalWidth, finalHeight);
-          pdf.save(`PDF_${receiptId}.pdf`);
-          resolve(null);
-        };
-      });
+      // Reload receipt to get updated status
+      const res = await fetch(`/api/receipts/get?id=${receiptId}`);
+      const data = await res.json();
+      if (data.success && data.receipt) {
+        setReceipt(data.receipt);
+      }
+    } catch (error) {
+      console.error('Error signing and sending:', error);
+      showToast(error instanceof Error ? error.message : 'Có lỗi xảy ra', 'error');
+      setSendStatus('error');
+      setTimeout(() => setSendStatus('idle'), 2000);
+    }
+  };
+
+  // Export PDF - use backend API to merge PDF with footer (backend handles merge properly)
+  const handleExportPDF = async () => {
+    if (!receipt) return;
+
+    setExporting(true);
+    try {
+      // Call backend API to export PDF with signatures (merged with footer)
+      // Backend will merge original PDF with footer containing signatures
+      const response = await fetch(`/api/documents/${receiptId}/export-pdf`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = 'Không thể tải xuống PDF';
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error || errorJson.message || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Get PDF blob
+      const blob = await response.blob();
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PDF_${receiptId}_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
 
       showToast('Đã tải xuống PDF', 'success');
     } catch (error) {
       console.error('Error exporting PDF:', error);
-      showToast('Không thể xuất PDF', 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Không thể xuất PDF';
+      showToast(errorMessage, 'error');
     } finally {
       setExporting(false);
     }
   };
+
 
   if (loading) {
     return (
@@ -346,7 +469,7 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
 
   const pdfUrl = receipt.pdfUrl.startsWith('http') 
     ? receipt.pdfUrl 
-    : `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5100'}${receipt.pdfUrl}`;
+    : `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000'}${receipt.pdfUrl}`;
   
   // Use edit state if in edit mode, otherwise use receipt data
   const displaySigners = mode === 'edit' ? signers : (receipt.document?.signers || [
@@ -411,20 +534,31 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
             <div className="glass-card rounded-2xl p-8 mb-6" ref={pdfContainerRef}>
               {/* PDF Display */}
               <div className="mb-8 border-2 border-gray-200 rounded-xl overflow-hidden bg-gray-50">
-                <object
-                  data={pdfUrl}
-                  type="application/pdf"
-                  className="w-full"
-                  style={{ minHeight: '800px', height: '800px' }}
-                  aria-label="PDF Document"
-                >
-                  <p className="p-8 text-center text-gray-500">
-                    Trình duyệt của bạn không hỗ trợ hiển thị PDF. 
-                    <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-2">
-                      Tải xuống PDF
-                    </a>
-                  </p>
-                </object>
+                {mode === 'view' ? (
+                  // View mode: Use iframe without toolbar for clean viewing
+                  <iframe
+                    src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1`}
+                    className="w-full"
+                    style={{ minHeight: '800px', height: '800px', border: 'none' }}
+                    title="PDF Document"
+                  />
+                ) : (
+                  // Edit mode: Use object tag (allows interaction)
+                  <object
+                    data={pdfUrl}
+                    type="application/pdf"
+                    className="w-full"
+                    style={{ minHeight: '800px', height: '800px' }}
+                    aria-label="PDF Document"
+                  >
+                    <p className="p-8 text-center text-gray-500">
+                      Trình duyệt của bạn không hỗ trợ hiển thị PDF. 
+                      <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-2">
+                        Tải xuống PDF
+                      </a>
+                    </p>
+                  </object>
+                )}
               </div>
 
               {/* Signatures Footer */}
@@ -522,23 +656,50 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
             {mode === 'view' && (
               <div className="glass-card rounded-2xl p-6">
                 <div className="flex flex-col gap-3">
-                  <button
-                    onClick={handleExportPDF}
-                    disabled={exporting || !completed}
-                    className="w-full px-6 py-3 border-2 border-black text-black rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {exporting ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Đang xuất...
-                      </>
-                    ) : (
-                      <>
-                        <FileDown className="w-5 h-5" />
-                        Tải xuống PDF
-                      </>
-                    )}
-                  </button>
+                  {!completed && (
+                    <button
+                      onClick={handleSignAndSend}
+                      disabled={sendStatus === 'loading' || displaySigners.filter(s => s.signed || localSignatures[s.id]).length < 2}
+                      className="w-full px-6 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {sendStatus === 'loading' ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Đang gửi...
+                        </>
+                      ) : sendStatus === 'success' ? (
+                        <>
+                          <CheckCircle2 className="w-5 h-5" />
+                          Đã hoàn tất!
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-5 h-5" />
+                          Hoàn tất & Gửi
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {completed && (
+                    <button
+                      onClick={handleExportPDF}
+                      disabled={exporting}
+                      className="w-full px-6 py-3 border-2 border-black text-black rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {exporting ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Đang xuất...
+                        </>
+                      ) : (
+                        <>
+                          <FileDown className="w-5 h-5" />
+                          Tải xuống PDF
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -624,6 +785,129 @@ export default function PDFViewKV({ receiptId, mode = 'view', onSave, onCancel }
                       />
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Share Actions */}
+              <div className="glass-card rounded-2xl p-6">
+                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <Share2 className="w-5 h-5" />
+                  Chia sẻ
+                </h3>
+
+                <div className="space-y-3">
+                  <button
+                    onClick={async () => {
+                      const url = `${window.location.origin}/?id=${receiptId}`;
+                      try {
+                        await navigator.clipboard.writeText(url);
+                        showToast('Đã copy link vào clipboard', 'success');
+                      } catch (error) {
+                        console.error('Error copying to clipboard:', error);
+                        showToast('Không thể copy link', 'error');
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy link
+                  </button>
+
+                  <button
+                    onClick={() => setEmailModalOpen(true)}
+                    className="w-full px-4 py-2.5 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Gửi email mời ký
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Email Invitation Modal */}
+          {emailModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="glass-card rounded-2xl p-6 max-w-md w-full">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">
+                  Gửi email mời ký
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email khách hàng
+                    </label>
+                    <input
+                      type="email"
+                      value={emailAddress}
+                      onChange={(e) => setEmailAddress(e.target.value)}
+                      placeholder="customer@example.com"
+                      className="w-full px-4 py-2.5 glass-input rounded-xl"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEmailModalOpen(false);
+                        setEmailAddress('');
+                      }}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors"
+                      disabled={sendingEmail}
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!emailAddress.trim()) {
+                          showToast('Vui lòng nhập email', 'error');
+                          return;
+                        }
+
+                        setSendingEmail(true);
+                        try {
+                          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin;
+                          const signUrl = `${baseUrl}/?id=${receiptId}`;
+
+                          const res = await fetch('/api/send-invitation', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              customerEmail: emailAddress.trim(),
+                              receiptId: receiptId,
+                              documentId: receiptId,
+                              signingUrl: signUrl,
+                              documentData: receipt?.document,
+                            }),
+                          });
+
+                          const data = await res.json().catch(() => ({ success: false }));
+                          if (data.success) {
+                            showToast('Đã gửi email mời ký', 'success');
+                            setEmailModalOpen(false);
+                            setEmailAddress('');
+                          } else {
+                            showToast(data.error || 'Gửi email thất bại', 'error');
+                          }
+                        } catch (error) {
+                          console.error('Send email error:', error);
+                          showToast('Lỗi khi gửi email', 'error');
+                        } finally {
+                          setSendingEmail(false);
+                        }
+                      }}
+                      disabled={!emailAddress.trim() || sendingEmail}
+                      className="flex-1 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {sendingEmail ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Đang gửi...
+                        </>
+                      ) : (
+                        'Gửi email'
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

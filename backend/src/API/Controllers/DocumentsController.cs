@@ -100,6 +100,7 @@ public class DocumentsController : ControllerBase
         return StatusCode(201, ApiResponse<DocumentResponseDto>.Created(documentDto, "Tạo tài liệu thành công"));
     }
 
+
     [HttpGet]
     [Authorize]
     public async Task<ActionResult<ApiResponse<PaginatedResponseDto<DocumentResponseDto>>>> GetDocuments(
@@ -174,6 +175,9 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpGet("{id}/export-pdf")]
+    [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> ExportPdfWithSignatures(string id)
     {
         try
@@ -182,136 +186,43 @@ public class DocumentsController : ControllerBase
             if (document == null)
                 return NotFound("Không tìm thấy tài liệu");
 
-            if (document.Type != DocumentType.Pdf || string.IsNullOrEmpty(document.PdfUrl))
-                return BadRequest("Chỉ hỗ trợ cho tài liệu PDF");
+            byte[]? pdfBytes;
 
-            // Get original PDF file path
-            var pdfFileName = Path.GetFileName(document.PdfUrl.Replace("/api/documents/pdf/", ""));
-            var originalPdfPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "pdfs", pdfFileName);
-            
-            if (!System.IO.File.Exists(originalPdfPath))
-                return NotFound("Không tìm thấy file PDF gốc");
-
-            // Generate footer HTML with signatures
-            var footerHtml = GeneratePdfFooterHtml(document);
-
-            // Merge PDF with footer
-            var mergedPdfPath = await _pdfSignatureService.MergePdfWithFooterAsync(originalPdfPath, footerHtml);
-
-            // Read merged PDF and return
-            var mergedPdfBytes = await System.IO.File.ReadAllBytesAsync(mergedPdfPath);
-            var outputFileName = $"{document.Id}_signed_{DateTime.UtcNow:yyyyMMddHHmmss}.pdf";
-            
-            // Set Content-Disposition to attachment to force download (this is the export endpoint)
-            Response.Headers.Append("Content-Disposition", $"attachment; filename=\"{outputFileName}\"");
-            
-            return File(mergedPdfBytes, "application/pdf", outputFileName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error exporting PDF with signatures: {Message}", ex.Message);
-            return StatusCode(500, $"Lỗi khi xuất PDF: {ex.Message}");
-        }
-    }
-
-    private string GeneratePdfFooterHtml(Domain.Entities.Document document)
-    {
-        // Generate signature HTML (similar to GenerateDocumentHtml but only footer part)
-        var signaturesHtml = string.Join("", document.Signatures.OrderBy(s => s.SignedAt).Select(s =>
-        {
-            var signatureHtml = "";
-            var signatureData = s.SignatureData;
-            
-            if (signatureData.Type == Domain.Enums.SignatureType.Draw && !string.IsNullOrEmpty(signatureData.Data))
+            // For Contract documents, always generate PDF from HTML (with new CSS)
+            if (document.Type == DocumentType.Contract)
             {
-                signatureHtml = ConvertSignaturePointsToSvg(signatureData.Data, signatureData.Color ?? "#000000");
-            }
-            else if (signatureData.Type == Domain.Enums.SignatureType.Type && !string.IsNullOrEmpty(signatureData.Data))
-            {
-                var fontFamily = signatureData.FontFamily ?? "Times New Roman, serif";
-                var color = signatureData.Color ?? "#000000";
-                signatureHtml = $@"<div style=""font-family: {fontFamily}; color: {color}; font-size: 24px; font-weight: bold; padding: 10px 0; border-bottom: 2px solid {color};"">{EscapeHtml(signatureData.Data)}</div>";
+                // Generate full HTML with content and signatures
+                var html = GenerateDocumentHtml(document);
+                
+                // Generate PDF from HTML
+                pdfBytes = await _pdfService.GeneratePdfFromHtmlAsync(html, document.Title);
+                
+                if (pdfBytes == null || pdfBytes.Length == 0)
+                    return StatusCode(500, "Không thể tạo PDF từ HTML");
             }
             else
             {
-                signatureHtml = $@"<div style=""font-size: 18px; font-weight: bold; padding: 10px 0; border-bottom: 2px solid #ccc;"">{EscapeHtml(s.SignerName ?? "")}</div>";
+                return BadRequest("Chỉ hỗ trợ cho tài liệu Hợp đồng");
             }
+
+            var outputFileName = $"{document.Id}_export_{DateTime.UtcNow:yyyyMMddHHmmss}.pdf";
             
-            return $@"
-            <div style=""margin: 20px 0; padding: 15px 0; border-bottom: 1px solid #eee;"">
-                <div style=""margin-bottom: 10px;"">{signatureHtml}</div>
-                <div style=""margin-top: 10px; font-size: 12px; color: #666;"">
-                    <div><strong>{EscapeHtml(s.SignerRole)}:</strong> {EscapeHtml(s.SignerName ?? "")}</div>
-                    {(string.IsNullOrEmpty(s.SignerEmail) ? "" : $"<div><strong>Email:</strong> {EscapeHtml(s.SignerEmail)}</div>")}
-                    <div><strong>Ngày ký:</strong> {s.SignedAt:dd/MM/yyyy HH:mm}</div>
-                </div>
-            </div>";
-        }));
-
-        var location = document.Location ?? "TP. Cần Thơ";
-        var dateString = document.ContractDate.HasValue 
-            ? FormatDateToVietnamese(document.ContractDate.Value)
-            : FormatDateToVietnamese(document.CreatedAt);
-
-        var html = $@"
-<!DOCTYPE html>
-<html lang=""vi"">
-<head>
-    <meta charset=""utf-8"">
-    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-    <title>Chữ ký - {EscapeHtml(document.Title ?? "Tài liệu")}</title>
-    <style>
-        @page {{
-            margin: 15mm;
-        }}
-        body {{
-            font-family: 'Times New Roman', 'Tinos', serif;
-            font-size: 12pt;
-            line-height: 1.6;
-            color: #000;
-            max-width: 210mm;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-        .date-location {{
-            text-align: right;
-            margin-bottom: 30px;
-            font-size: 11pt;
-            color: #333;
-        }}
-        .signatures {{
-            margin-top: 30px;
-        }}
-        .signature-item {{
-            margin: 20px 0;
-            padding: 15px 0;
-            border-bottom: 1px solid #eee;
-        }}
-        .signature-svg {{
-            max-width: 250px;
-            max-height: 100px;
-            margin-bottom: 10px;
-        }}
-        .signature-info {{
-            margin-top: 10px;
-            font-size: 11pt;
-            color: #666;
-        }}
-    </style>
-</head>
-<body>
-    <div class=""date-location"">
-        {EscapeHtml(location)}, {dateString}
-    </div>
-    <div class=""signatures"">
-        <h2 style=""font-size: 14pt; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px;"">Chữ ký các bên</h2>
-        {signaturesHtml}
-    </div>
-</body>
-</html>";
-
-        return html;
+            // Set Content-Disposition to attachment to force download
+            Response.Headers.Append("Content-Disposition", $"attachment; filename=\"{outputFileName}\"");
+            
+            return File(pdfBytes, "application/pdf", outputFileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting PDF with signatures: {Message}\nInnerException: {InnerException}\nStackTrace: {StackTrace}", 
+                ex.Message, ex.InnerException?.Message ?? "None", ex.StackTrace ?? "None");
+            var errorMessage = ex.InnerException != null && ex.InnerException.Message != ex.Message 
+                ? $"{ex.Message}: {ex.InnerException.Message}" 
+                : ex.Message;
+            return StatusCode(500, $"Lỗi khi xuất PDF: {errorMessage}");
+        }
     }
+
 
     [HttpPut("{id}")]
     [Authorize]
@@ -393,28 +304,6 @@ public class DocumentsController : ControllerBase
 
         try
         {
-            // If it's a PDF document, delete the PDF file first
-            if (document.Type == DocumentType.Pdf && !string.IsNullOrEmpty(document.PdfUrl))
-            {
-                try
-                {
-                    // Extract filename from PdfUrl (e.g., "/api/documents/pdf/PDF-123_file.pdf")
-                    var pdfFileName = Path.GetFileName(document.PdfUrl.Replace("/api/documents/pdf/", ""));
-                    var pdfFilePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "pdfs", pdfFileName);
-                    
-                    if (System.IO.File.Exists(pdfFilePath))
-                    {
-                        await _pdfSignatureService.DeletePdfFileAsync(pdfFilePath);
-                        _logger.LogInformation("PDF file deleted: {FilePath}", pdfFilePath);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to delete PDF file for document {DocumentId}, continuing with document deletion", id);
-                    // Continue with document deletion even if PDF file deletion fails
-                }
-            }
-
             var deleted = await _documentService.DeleteDocumentAsync(id);
             if (!deleted)
             {
@@ -434,223 +323,6 @@ public class DocumentsController : ControllerBase
         }
     }
 
-    [HttpPut("{id}/pdf-signature-blocks")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<DocumentResponseDto>>> UpdatePdfSignatureBlocks(string id, [FromBody] List<PdfSignatureBlockDto> signatureBlocks)
-    {
-        var document = await _documentService.GetDocumentByIdAsync(id);
-        if (document == null)
-            return NotFound(ApiResponse<DocumentResponseDto>.NotFound("Không tìm thấy tài liệu"));
-
-        if (document.Type != DocumentType.Pdf)
-            return BadRequest(ApiResponse<DocumentResponseDto>.Error("Chỉ hỗ trợ cho tài liệu PDF", new List<string> { "Chỉ hỗ trợ cho tài liệu PDF" }));
-
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value;
-
-        if (roleClaim != "Admin" && (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId) || document.UserId != userId))
-            return StatusCode(403, ApiResponse<DocumentResponseDto>.Forbidden());
-
-        try
-        {
-            // Validate signature blocks
-            if (signatureBlocks == null)
-            {
-                return BadRequest(ApiResponse<DocumentResponseDto>.Error("Danh sách vị trí ký không được để trống", new List<string> { "Danh sách vị trí ký không được để trống" }));
-            }
-
-            // Convert DTOs to ValueObjects - preserve IDs from frontend
-            var pdfSignatureBlocks = signatureBlocks.Select(block => 
-            {
-                var vo = new Domain.ValueObjects.PdfSignatureBlock
-                {
-                    Id = string.IsNullOrEmpty(block.Id) ? Guid.NewGuid().ToString() : block.Id, // Preserve ID from frontend, generate new if empty
-                    PageNumber = block.PageNumber,
-                    XPercent = block.XPercent,
-                    YPercent = block.YPercent,
-                    WidthPercent = block.WidthPercent,
-                    HeightPercent = block.HeightPercent,
-                    SignerRole = block.SignerRole
-                };
-                _logger.LogInformation("Converting block DTO to VO. DTO ID: {DtoId}, VO ID: {VoId}, Role: {Role}", block.Id, vo.Id, vo.SignerRole);
-                return vo;
-            }).ToList();
-
-            _logger.LogInformation("Saving {Count} signature blocks for document {DocumentId}. Block IDs: {BlockIds}", 
-                pdfSignatureBlocks.Count, id, string.Join(", ", pdfSignatureBlocks.Select(b => $"{b.Id}")));
-
-            document.PdfSignatureBlocks = pdfSignatureBlocks;
-            document.UpdatedAt = DateTime.UtcNow;
-            await _documentRepository.UpdateAsync(document);
-
-            // Reload document to get the latest data and verify blocks were saved correctly
-            document = await _documentService.GetDocumentByIdAsync(id);
-            if (document == null)
-                return NotFound(ApiResponse<DocumentResponseDto>.NotFound("Không tìm thấy tài liệu"));
-
-            // Verify blocks were saved correctly
-            var savedBlocks = document.PdfSignatureBlocks ?? new List<Domain.ValueObjects.PdfSignatureBlock>();
-            _logger.LogInformation("Document reloaded. Saved blocks count: {Count}. Block IDs: {BlockIds}", 
-                savedBlocks.Count, string.Join(", ", savedBlocks.Select(b => $"{b.Id}")));
-
-            var documentDto = MapToDto(document);
-            return Ok(ApiResponse<DocumentResponseDto>.Success(documentDto, "Cập nhật vị trí ký thành công"));
-        }
-        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
-        {
-            _logger.LogError(ex, "Database error updating PDF signature blocks: {Message}", ex.Message);
-            var innerEx = ex.InnerException;
-            var errorMsg = "Lỗi cơ sở dữ liệu";
-            if (innerEx != null)
-            {
-                errorMsg = innerEx.Message.Contains("value too long") || innerEx.Message.Contains("character varying")
-                    ? "Dữ liệu quá lớn. Vui lòng giảm số lượng vị trí ký."
-                    : innerEx.Message;
-            }
-            return StatusCode(500, ApiResponse<DocumentResponseDto>.Error("Lỗi khi cập nhật vị trí ký", new List<string> { errorMsg }));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating PDF signature blocks: {Message}\nStackTrace: {StackTrace}", ex.Message, ex.StackTrace);
-            return StatusCode(500, ApiResponse<DocumentResponseDto>.Error("Lỗi khi cập nhật vị trí ký", new List<string> { ex.Message ?? "Lỗi không xác định" }));
-        }
-    }
-
-    [HttpPost("{id}/apply-pdf-signature")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<DocumentResponseDto>>> ApplyPdfSignature(string id, [FromBody] ApplyPdfSignatureRequestDto request)
-    {
-        var document = await _documentService.GetDocumentByIdAsync(id);
-        if (document == null)
-            return NotFound(ApiResponse<DocumentResponseDto>.NotFound("Không tìm thấy tài liệu"));
-
-        if (document.Type != DocumentType.Pdf || string.IsNullOrEmpty(document.PdfUrl))
-            return BadRequest(ApiResponse<DocumentResponseDto>.Error("Chỉ hỗ trợ cho tài liệu PDF", new List<string> { "Chỉ hỗ trợ cho tài liệu PDF" }));
-
-        try
-        {
-            // Reload document to ensure we have the latest PdfSignatureBlocks
-            document = await _documentService.GetDocumentByIdAsync(id);
-            if (document == null)
-                return NotFound(ApiResponse<DocumentResponseDto>.NotFound("Không tìm thấy tài liệu"));
-
-            // Find signature block
-            var signatureBlocks = document.PdfSignatureBlocks ?? new List<Domain.ValueObjects.PdfSignatureBlock>();
-            _logger.LogInformation("Looking for signature block. DocumentId: {DocumentId}, RequestBlockId: {RequestBlockId}, Total blocks: {BlockCount}", 
-                id, request.SignatureBlockId, signatureBlocks.Count);
-            
-            if (signatureBlocks.Count > 0)
-            {
-                _logger.LogInformation("Available block IDs: {BlockIds}", string.Join(", ", signatureBlocks.Select(b => $"{b.Id} (Role: {b.SignerRole}, Signed: {b.IsSigned})")));
-            }
-            
-            var signatureBlock = signatureBlocks.FirstOrDefault(b => b.Id == request.SignatureBlockId);
-            
-            if (signatureBlock == null)
-            {
-                _logger.LogWarning("Signature block not found. DocumentId: {DocumentId}, BlockId: {BlockId}, Available blocks: {BlockIds}", 
-                    id, request.SignatureBlockId, string.Join(", ", signatureBlocks.Select(b => b.Id)));
-                return BadRequest(ApiResponse<DocumentResponseDto>.Error("Không tìm thấy vị trí ký", new List<string> { "Không tìm thấy vị trí ký. Vui lòng lưu vị trí ký trước." }));
-            }
-
-            if (signatureBlock.IsSigned)
-                return BadRequest(ApiResponse<DocumentResponseDto>.Error("Vị trí ký đã được ký", new List<string> { "Vị trí ký đã được ký" }));
-
-            // Get full PDF file path
-            var pdfFileName = Path.GetFileName(document.PdfUrl);
-            if (string.IsNullOrEmpty(pdfFileName))
-                return BadRequest(ApiResponse<DocumentResponseDto>.Error("Invalid PDF URL", new List<string> { "URL PDF không hợp lệ" }));
-            
-            var pdfFilePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "pdfs", pdfFileName);
-
-            if (!System.IO.File.Exists(pdfFilePath))
-                return NotFound(ApiResponse<DocumentResponseDto>.NotFound("Không tìm thấy file PDF"));
-
-            // Apply signature to PDF
-            var signedPdfPath = await _pdfSignatureService.ApplySignatureToPdfAsync(
-                pdfFilePath,
-                request.SignatureImageBase64,
-                signatureBlock
-            );
-
-            // Update PDF URL to signed version
-            var signedPdfFileName = Path.GetFileName(signedPdfPath);
-            document.PdfUrl = $"/api/documents/pdf/{signedPdfFileName}";
-            document.UpdatedAt = DateTime.UtcNow;
-
-            // Mark signature block as signed
-            signatureBlock.IsSigned = true;
-            document.PdfSignatureBlocks = signatureBlocks;
-            await _documentRepository.UpdateAsync(document);
-
-            // Create signature record
-            var signatureData = new Domain.ValueObjects.SignatureData
-            {
-                Type = Domain.Enums.SignatureType.Draw,
-                Data = request.SignatureImageBase64,
-                Color = "#000000"
-            };
-
-            try
-            {
-                await _signatureService.AddSignatureAsync(
-                    document.Id,
-                    signatureBlock.Id, // Use signature block ID as signer ID
-                    signatureBlock.SignerRole,
-                    request.SignerName,
-                    request.SignerEmail,
-                    signatureData,
-                    HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    Request.Headers["User-Agent"].ToString()
-                );
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogWarning(ex, "Cannot add signature record: {Message}. Document: {DocumentId}, Block: {BlockId}", 
-                    ex.Message, document.Id, signatureBlock.Id);
-                // If signature record already exists, continue - the PDF is already signed
-                // This can happen if the user clicks "Sign" multiple times
-                if (!ex.Message.Contains("already signed", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw; // Re-throw if it's a different error
-                }
-                _logger.LogInformation("Signature record already exists, continuing with PDF update");
-            }
-
-            // Update document status
-            await _documentService.UpdateDocumentStatusAsync(id);
-
-            var documentDto = MapToDto(document);
-            return Ok(ApiResponse<DocumentResponseDto>.Success(documentDto, "Ký PDF thành công"));
-        }
-        catch (FileNotFoundException ex)
-        {
-            _logger.LogError(ex, "PDF file not found when applying signature: {FilePath}", ex.FileName);
-            return NotFound(ApiResponse<DocumentResponseDto>.NotFound("Không tìm thấy file PDF"));
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogError(ex, "Invalid argument when applying signature: {Message}", ex.Message);
-            return BadRequest(ApiResponse<DocumentResponseDto>.Error("Dữ liệu không hợp lệ", new List<string> { ex.Message }));
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogError(ex, "Invalid operation when applying signature: {Message}\nInnerException: {InnerException}", ex.Message, ex.InnerException?.Message);
-            var errorMsg = ex.InnerException != null && ex.InnerException.Message != ex.Message 
-                ? $"{ex.Message}: {ex.InnerException.Message}" 
-                : ex.Message;
-            return BadRequest(ApiResponse<DocumentResponseDto>.Error("Không thể ký PDF", new List<string> { errorMsg }));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error applying PDF signature. Message: {Message}\nInnerException: {InnerException}\nStackTrace: {StackTrace}", 
-                ex.Message, ex.InnerException?.Message, ex.StackTrace);
-            var errorMsg = ex.InnerException != null && ex.InnerException.Message != ex.Message 
-                ? $"{ex.Message}: {ex.InnerException.Message}" 
-                : (ex.Message ?? "Lỗi không xác định");
-            return StatusCode(500, ApiResponse<DocumentResponseDto>.Error("Lỗi khi ký PDF", new List<string> { errorMsg }));
-        }
-    }
 
     [HttpPost("{id}/sign")]
     public async Task<ActionResult<ApiResponse<DocumentResponseDto>>> SignDocument(string id, [FromBody] SignDocumentRequestDto request)
@@ -802,10 +474,7 @@ public class DocumentsController : ControllerBase
                 ContractNumber = document.ContractNumber,
                 Location = document.Location,
                 ContractDate = document.ContractDate,
-                // For PDF documents, format CreatedAt as Vietnamese date string
-                CreatedDate = document.Type == Domain.Enums.DocumentType.Pdf 
-                    ? FormatDateToVietnamese(document.ContractDate ?? document.CreatedAt)
-                    : null
+                CreatedDate = null
             },
             Creator = document.User == null ? null : new UserDto
             {
@@ -834,19 +503,8 @@ public class DocumentsController : ControllerBase
             CreatedAt = document.CreatedAt,
             SignedAt = document.SignedAt,
             ViewedAt = document.ViewedAt,
-            PdfUrl = document.PdfUrl,
-            PdfSignatureBlocks = document.PdfSignatureBlocks?.Select(block => new PdfSignatureBlockDto
-            {
-                Id = block.Id,
-                PageNumber = block.PageNumber,
-                XPercent = block.XPercent,
-                YPercent = block.YPercent,
-                WidthPercent = block.WidthPercent,
-                HeightPercent = block.HeightPercent,
-                SignerRole = block.SignerRole,
-                IsSigned = block.IsSigned,
-                SignatureId = block.SignatureId
-            }).ToList()
+            PdfUrl = null,
+            PdfSignatureBlocks = null
         };
     }
 
@@ -924,15 +582,25 @@ public class DocumentsController : ControllerBase
     <style>
         @page {{
             margin: 15mm;
+            size: A4;
+        }}
+        * {{
+            box-sizing: border-box;
+        }}
+        html, body {{
+            width: 100%;
+            margin: 0;
+            padding: 0;
         }}
         body {{
             font-family: 'Times New Roman', 'Tinos', serif;
             font-size: 12pt;
             line-height: 1.6;
             color: #000;
-            max-width: 210mm;
-            margin: 0 auto;
-            padding: 20px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            orphans: 3;
+            widows: 3;
         }}
         h1 {{
             font-size: 20pt;
@@ -941,20 +609,68 @@ public class DocumentsController : ControllerBase
             text-align: center;
             border-bottom: 2px solid #000;
             padding-bottom: 10px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            width: 100%;
+            page-break-after: avoid;
         }}
         .content {{
             line-height: 1.8;
             margin: 30px 0;
             text-align: justify;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            width: 100%;
+            page-break-inside: auto;
+        }}
+        .content * {{
+            max-width: 100% !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }}
+        .content p {{
+            width: 100%;
+            page-break-inside: avoid;
+            orphans: 2;
+            widows: 2;
+        }}
+        .content div {{
+            width: 100%;
+        }}
+        .content h2, .content h3, .content h4 {{
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }}
+        .content table {{
+            width: 100% !important;
+            max-width: 100% !important;
+            table-layout: fixed;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            page-break-inside: auto;
+        }}
+        .content table tr {{
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }}
+        .content table td {{
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }}
         .signatures {{
             margin-top: 50px;
             page-break-inside: avoid;
+            page-break-before: auto;
+            width: 100%;
         }}
         .signature-item {{
             margin: 30px 0;
             padding: 20px 0;
             border-bottom: 1px solid #eee;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            width: 100%;
+            page-break-inside: avoid;
         }}
         .signature-svg {{
             max-width: 250px;
@@ -965,6 +681,8 @@ public class DocumentsController : ControllerBase
             margin-top: 10px;
             font-size: 11pt;
             color: #666;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }}
         .metadata {{
             margin: 20px 0;
@@ -972,6 +690,21 @@ public class DocumentsController : ControllerBase
             background: #f5f5f5;
             border-radius: 5px;
             font-size: 11pt;
+            width: 100%;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            page-break-inside: avoid;
+        }}
+        .metadata table {{
+            width: 100% !important;
+            max-width: 100% !important;
+            table-layout: fixed;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }}
+        .metadata table td {{
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }}
     </style>
 </head>
@@ -980,7 +713,7 @@ public class DocumentsController : ControllerBase
     {metadataHtml}
     <div class=""content"">{document.Content ?? ""}</div>
     <div class=""signatures"">
-        <h2 style=""font-size: 16pt; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px;"">Chữ ký các bên</h2>
+        <h2 style=""font-size: 16pt; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px; word-wrap: break-word; overflow-wrap: break-word; width: 100%;"">Chữ ký các bên</h2>
         {signaturesHtml}
     </div>
 </body>

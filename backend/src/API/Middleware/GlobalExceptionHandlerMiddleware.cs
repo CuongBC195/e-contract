@@ -23,7 +23,8 @@ public class GlobalExceptionHandlerMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An unhandled exception occurred. RequestId: {RequestId}", context.TraceIdentifier);
+            _logger.LogError(ex, "An unhandled exception occurred. RequestId: {RequestId}\nMessage: {Message}\nInnerException: {InnerException}\nStackTrace: {StackTrace}", 
+                context.TraceIdentifier, ex.Message, ex.InnerException?.Message ?? "None", ex.StackTrace ?? "None");
             await HandleExceptionAsync(context, ex);
         }
     }

@@ -13,7 +13,6 @@ public static class DocumentIdGenerator
         {
             DocumentType.Receipt => AppConstants.ReceiptPrefix,
             DocumentType.Contract => AppConstants.ContractPrefix,
-            DocumentType.Pdf => AppConstants.PdfPrefix,
             _ => AppConstants.ContractPrefix
         };
         

@@ -108,12 +108,6 @@ public class PaginatedResponseDto<T>
     public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
 }
 
-public class UploadPdfRequestDto
-{
-    public string? Title { get; set; }
-    public List<SignerDto> Signers { get; set; } = new();
-    public SigningMode SigningMode { get; set; } = SigningMode.Public;
-}
 
 public class PdfSignatureBlockDto
 {

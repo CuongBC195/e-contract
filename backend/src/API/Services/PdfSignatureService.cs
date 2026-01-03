@@ -2,6 +2,7 @@ using Domain.ValueObjects;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas;
 using iText.Kernel.Pdf.Xobject;
+using iText.Kernel.Utils;
 using iText.Layout;
 using iText.Layout.Element;
 using iText.IO.Image;
@@ -29,30 +30,6 @@ public class PdfSignatureService : IPdfSignatureService
         }
     }
 
-    public async Task<string> SavePdfFileAsync(IFormFile pdfFile, string documentId)
-    {
-        if (pdfFile == null || pdfFile.Length == 0)
-            throw new ArgumentException("PDF file is required");
-
-        if (!pdfFile.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("File must be a PDF");
-
-        // Validate file size (max 50MB)
-        const long maxFileSize = 50 * 1024 * 1024; // 50MB
-        if (pdfFile.Length > maxFileSize)
-            throw new ArgumentException("PDF file size must be less than 50MB");
-
-        var fileName = $"{documentId}_{DateTime.UtcNow:yyyyMMddHHmmss}.pdf";
-        var filePath = Path.Combine(_pdfStoragePath, fileName);
-
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await pdfFile.CopyToAsync(stream);
-        }
-
-        _logger.LogInformation("PDF file saved: {FilePath}", filePath);
-        return filePath;
-    }
 
     public async Task<string> ApplySignatureToPdfAsync(string pdfFilePath, string signatureImageBase64, PdfSignatureBlock signatureBlock)
     {
@@ -190,108 +167,6 @@ public class PdfSignatureService : IPdfSignatureService
         }
     }
 
-    public async Task<string> MergePdfWithFooterAsync(string originalPdfPath, string footerHtml)
-    {
-        if (!File.Exists(originalPdfPath))
-            throw new FileNotFoundException("Original PDF file not found", originalPdfPath);
-
-        var outputFileName = Path.GetFileNameWithoutExtension(originalPdfPath) + "_merged.pdf";
-        var outputFilePath = Path.Combine(_pdfStoragePath, outputFileName);
-
-        try
-        {
-            // Step 1: Generate footer PDF from HTML using PuppeteerSharp
-            var footerPdfBytes = await GenerateFooterPdfAsync(footerHtml);
-            if (footerPdfBytes == null || footerPdfBytes.Length == 0)
-                throw new InvalidOperationException("Failed to generate footer PDF");
-
-            // Step 2: Merge original PDF with footer PDF using iText7
-            using (var originalPdfStream = new FileStream(originalPdfPath, FileMode.Open, FileAccess.Read))
-            using (var footerPdfStream = new MemoryStream(footerPdfBytes))
-            using (var outputPdfStream = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write))
-            {
-                using var originalPdfReader = new PdfReader(originalPdfStream);
-                using var footerPdfReader = new PdfReader(footerPdfStream);
-                using var pdfWriter = new PdfWriter(outputPdfStream);
-                using var mergedPdfDoc = new PdfDocument(pdfWriter);
-
-                // Copy all pages from original PDF
-                using var originalPdfDoc = new PdfDocument(originalPdfReader);
-                originalPdfDoc.CopyPagesTo(1, originalPdfDoc.GetNumberOfPages(), mergedPdfDoc);
-
-                // Copy footer page(s) from footer PDF
-                using var footerPdfDoc = new PdfDocument(footerPdfReader);
-                footerPdfDoc.CopyPagesTo(1, footerPdfDoc.GetNumberOfPages(), mergedPdfDoc);
-
-                mergedPdfDoc.Close();
-            }
-
-            _logger.LogInformation("PDF merged with footer: {OutputFilePath}", outputFilePath);
-            return outputFilePath;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error merging PDF with footer: {Message}", ex.Message);
-            throw new InvalidOperationException($"Error merging PDF with footer: {ex.Message}", ex);
-        }
-    }
-
-    private async Task<byte[]?> GenerateFooterPdfAsync(string html)
-    {
-        try
-        {
-            var chromeExecutablePath = _configuration["Pdf:ChromeExecutablePath"];
-            var launchOptions = new LaunchOptions
-            {
-                Headless = true,
-                Args = new[] { "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage" }
-            };
-
-            if (!string.IsNullOrEmpty(chromeExecutablePath))
-            {
-                launchOptions.ExecutablePath = chromeExecutablePath;
-            }
-            else
-            {
-                try
-                {
-                    var browserFetcher = new BrowserFetcher();
-                    await browserFetcher.DownloadAsync();
-                }
-                catch (Exception downloadEx)
-                {
-                    _logger.LogWarning(downloadEx, "Failed to download Chromium, continuing...");
-                }
-            }
-
-            using var browser = await Puppeteer.LaunchAsync(launchOptions);
-            using var page = await browser.NewPageAsync();
-            
-            await page.SetContentAsync(html);
-            await page.WaitForNetworkIdleAsync(new WaitForNetworkIdleOptions { Timeout = 5000 });
-            
-            var pdfOptions = new PdfOptions
-            {
-                Format = PuppeteerSharp.Media.PaperFormat.A4,
-                PrintBackground = true,
-                MarginOptions = new PuppeteerSharp.Media.MarginOptions
-                {
-                    Top = "15mm",
-                    Right = "15mm",
-                    Bottom = "15mm",
-                    Left = "15mm"
-                }
-            };
-
-            var pdfBytes = await page.PdfDataAsync(pdfOptions);
-            return pdfBytes;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error generating footer PDF from HTML");
-            return null;
-        }
-    }
 }
 
 // Extension method to read all bytes from stream
